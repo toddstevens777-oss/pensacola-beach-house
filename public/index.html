@@ -95,10 +95,10 @@
         <input id="period-label" type="text" placeholder="e.g. Fall 2026" required />
       </label>
       <label>From
-        <input id="period-start" type="date" required />
+        <input id="period-start" type="text" class="date-field" placeholder="Select a date" readonly required autocomplete="off" />
       </label>
       <label>Through
-        <input id="period-end" type="date" required />
+        <input id="period-end" type="text" class="date-field" placeholder="Select a date" readonly required autocomplete="off" />
       </label>
       <p class="hint">Weeks always run Thursday → Wednesday. We'll auto-generate every full week in this range.</p>
       <p id="period-error" class="error"></p>

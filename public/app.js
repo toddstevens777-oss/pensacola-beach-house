@@ -7,6 +7,123 @@ let openWeekId = null;
 const $ = (sel) => document.querySelector(sel);
 const $$ = (sel) => Array.from(document.querySelectorAll(sel));
 
+// ---------- Custom date picker (bigger + more legible than the native one) ----------
+
+function toISOLocal(date) {
+  const y = date.getFullYear();
+  const m = String(date.getMonth() + 1).padStart(2, '0');
+  const d = String(date.getDate()).padStart(2, '0');
+  return `${y}-${m}-${d}`;
+}
+
+function attachDatePicker(input) {
+  let viewDate = new Date();
+  viewDate.setDate(1);
+  let selectedISO = null;
+
+  const popup = document.createElement('div');
+  popup.className = 'date-picker-popup';
+  document.body.appendChild(popup);
+
+  function fmtDisplay(iso) {
+    const [y, m, d] = iso.split('-').map(Number);
+    const dt = new Date(Date.UTC(y, m - 1, d));
+    return dt.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric', timeZone: 'UTC' });
+  }
+
+  function render() {
+    const year = viewDate.getFullYear();
+    const month = viewDate.getMonth();
+    const first = new Date(year, month, 1);
+    const startDay = first.getDay();
+    const daysInMonth = new Date(year, month + 1, 0).getDate();
+    const daysInPrevMonth = new Date(year, month, 0).getDate();
+    const monthLabel = first.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+    const todayISO = toISOLocal(new Date());
+
+    let cells = '';
+    for (let i = startDay - 1; i >= 0; i--) {
+      cells += `<button type="button" class="dp-day dp-muted" disabled>${daysInPrevMonth - i}</button>`;
+    }
+    for (let d = 1; d <= daysInMonth; d++) {
+      const iso = `${year}-${String(month + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+      let cls = 'dp-day';
+      if (iso === todayISO) cls += ' dp-today';
+      if (iso === selectedISO) cls += ' dp-selected';
+      cells += `<button type="button" class="${cls}" data-iso="${iso}">${d}</button>`;
+    }
+
+    popup.innerHTML = `
+      <div class="dp-header">
+        <button type="button" class="dp-nav-btn" data-nav="-1">&lsaquo;</button>
+        <span class="dp-label">${monthLabel}</span>
+        <button type="button" class="dp-nav-btn" data-nav="1">&rsaquo;</button>
+      </div>
+      <div class="dp-weekdays"><span>S</span><span>M</span><span>T</span><span>W</span><span>T</span><span>F</span><span>S</span></div>
+      <div class="dp-days">${cells}</div>
+      <div class="dp-footer"><button type="button" class="dp-today-btn">Today</button></div>
+    `;
+
+    popup.querySelectorAll('[data-nav]').forEach((btn) => {
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        viewDate.setMonth(viewDate.getMonth() + parseInt(btn.dataset.nav, 10));
+        render();
+      });
+    });
+    popup.querySelectorAll('.dp-day[data-iso]').forEach((btn) => {
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        selectedISO = btn.dataset.iso;
+        input.value = fmtDisplay(selectedISO);
+        input.dataset.iso = selectedISO;
+        input.dispatchEvent(new Event('change'));
+        close();
+      });
+    });
+    popup.querySelector('.dp-today-btn').addEventListener('click', (e) => {
+      e.stopPropagation();
+      const t = new Date();
+      viewDate = new Date(t.getFullYear(), t.getMonth(), 1);
+      render();
+    });
+  }
+
+  function open() {
+    $$('.date-picker-popup.open').forEach((p) => { if (p !== popup) p.classList.remove('open'); });
+    const rect = input.getBoundingClientRect();
+    popup.style.top = `${window.scrollY + rect.bottom + 6}px`;
+    popup.style.left = `${window.scrollX + rect.left}px`;
+    render();
+    popup.classList.add('open');
+    requestAnimationFrame(() => {
+      const pr = popup.getBoundingClientRect();
+      if (pr.right > window.innerWidth - 8) {
+        popup.style.left = `${Math.max(8, window.scrollX + rect.right - pr.width)}px`;
+      }
+    });
+  }
+  function close() { popup.classList.remove('open'); }
+
+  input.addEventListener('click', (e) => { e.stopPropagation(); open(); });
+  document.addEventListener('click', (e) => {
+    if (!popup.contains(e.target) && e.target !== input) close();
+  });
+
+  return {
+    close,
+    clear() { selectedISO = null; input.value = ''; delete input.dataset.iso; },
+    setISO(iso) {
+      if (!iso) return;
+      selectedISO = iso;
+      const [y, m] = iso.split('-').map(Number);
+      viewDate = new Date(y, m - 1, 1);
+      input.value = fmtDisplay(iso);
+      input.dataset.iso = iso;
+    },
+  };
+}
+
 async function api(path, opts = {}) {
   const res = await fetch(path, {
     method: opts.method || 'GET',
@@ -202,22 +319,39 @@ function escapeHtml(str) {
 
 // ---------- New period modal ----------
 
+const periodStartPicker = attachDatePicker($('#period-start'));
+const periodEndPicker = attachDatePicker($('#period-end'));
+
 $('#new-period-btn').addEventListener('click', () => {
   $('#period-error').textContent = '';
   $('#period-form').reset();
+  periodStartPicker.clear();
+  periodEndPicker.clear();
+  periodStartPicker.close();
+  periodEndPicker.close();
   $('#period-modal').style.display = 'flex';
 });
-$('#period-cancel').addEventListener('click', () => { $('#period-modal').style.display = 'none'; });
+$('#period-cancel').addEventListener('click', () => {
+  $('#period-modal').style.display = 'none';
+  periodStartPicker.close();
+  periodEndPicker.close();
+});
 
 $('#period-form').addEventListener('submit', async (e) => {
   e.preventDefault();
   $('#period-error').textContent = '';
   const label = $('#period-label').value.trim();
-  const start_date = $('#period-start').value;
-  const end_date = $('#period-end').value;
+  const start_date = $('#period-start').dataset.iso;
+  const end_date = $('#period-end').dataset.iso;
+  if (!start_date || !end_date) {
+    $('#period-error').textContent = 'Please pick both a start and end date.';
+    return;
+  }
   try {
     await api('/api/periods', { method: 'POST', body: { label, start_date, end_date } });
     $('#period-modal').style.display = 'none';
+    periodStartPicker.close();
+    periodEndPicker.close();
     await loadPeriods();
   } catch (err) {
     $('#period-error').textContent = err.message;

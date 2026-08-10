@@ -62,6 +62,66 @@ input, select {
   border: 1px solid var(--border);
   font-family: inherit;
 }
+.date-field {
+  font-size: 1.1rem;
+  padding: 12px 14px;
+  cursor: pointer;
+  background: white;
+}
+
+/* ---------- Custom date picker popup ---------- */
+.date-picker-popup {
+  position: absolute;
+  z-index: 200;
+  background: white;
+  border-radius: 14px;
+  box-shadow: 0 12px 36px rgba(0,0,0,0.18);
+  border: 1px solid var(--border);
+  padding: 16px;
+  width: 320px;
+  max-width: calc(100vw - 16px);
+  display: none;
+}
+.date-picker-popup.open { display: block; }
+.dp-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; }
+.dp-header .dp-label { font-weight: 700; font-size: 1.05rem; }
+.dp-nav-btn {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  width: 34px;
+  height: 34px;
+  font-size: 1.1rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--ink);
+}
+.dp-nav-btn:hover { background: #eef2ff; }
+.dp-weekdays, .dp-days {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 4px;
+  text-align: center;
+}
+.dp-weekdays { margin-bottom: 4px; }
+.dp-weekdays span { font-size: 0.78rem; font-weight: 700; color: var(--muted); padding: 4px 0; }
+.dp-day {
+  font-size: 1rem;
+  padding: 10px 0;
+  border-radius: 8px;
+  cursor: pointer;
+  border: none;
+  background: transparent;
+  color: var(--ink);
+  font-family: inherit;
+}
+.dp-day:hover { background: #eef2ff; }
+.dp-day.dp-muted { color: #d1d5db; }
+.dp-day.dp-today { font-weight: 700; color: #4338ca; }
+.dp-day.dp-selected { background: #1f2937; color: white; font-weight: 700; }
+.dp-footer { display: flex; justify-content: flex-end; margin-top: 10px; }
+.dp-today-btn { background: none; border: none; color: #4338ca; font-weight: 600; font-size: 0.85rem; cursor: pointer; }
 button { font-family: inherit; cursor: pointer; }
 .error { color: #dc2626; font-size: 0.85rem; min-height: 1.2em; margin: 0; }
 .success { color: #16a34a; font-size: 0.85rem; min-height: 1.2em; margin: 0; }
@@ -119,10 +179,13 @@ button { font-family: inherit; cursor: pointer; }
   margin: 0 auto 20px;
   border-radius: 14px;
   overflow: hidden;
-  height: 180px;
+  height: 240px;
   box-shadow: 0 6px 20px rgba(0,0,0,0.08);
 }
 .tab-banner img { width: 100%; height: 100%; object-fit: cover; display: block; }
+@media (max-width: 640px) {
+  .tab-banner { height: 160px; }
+}
 .panel-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; }
 .panel-header h2 { margin: 0; }
 .primary-btn {
