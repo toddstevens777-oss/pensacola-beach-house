@@ -1,0 +1,17 @@
+{
+  "name": "beachhouse-calendar",
+  "version": "1.0.0",
+  "description": "Shared scheduling calendar for the Pensacola beach house (Stevens / Furr / Wagner families)",
+  "main": "server/index.js",
+  "scripts": {
+    "start": "node server/index.js",
+    "dev": "node server/index.js"
+  },
+  "dependencies": {
+    "better-sqlite3": "^11.3.0",
+    "cookie-parser": "^1.4.6",
+    "cookie-signature": "^1.2.1",
+    "express": "^4.19.2",
+    "nanoid": "^3.3.7"
+  }
+}

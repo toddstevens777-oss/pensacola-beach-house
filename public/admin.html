@@ -1,0 +1,49 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Treasurer Admin — Pensacola Beach House</title>
+<link rel="stylesheet" href="/style.css" />
+</head>
+<body>
+
+<div id="key-screen" class="screen">
+  <div class="login-card">
+    <h1>🔑 Treasurer Admin</h1>
+    <p class="subtitle">Reset a family's password</p>
+    <form id="key-form">
+      <label>Admin key
+        <input id="admin-key" type="password" required autocomplete="off" />
+      </label>
+      <button type="submit">Unlock</button>
+      <p id="key-error" class="error"></p>
+    </form>
+    <a href="/" class="admin-link">← Back to the calendar</a>
+  </div>
+</div>
+
+<div id="admin-screen" class="screen" style="display:none;">
+  <header class="topbar">
+    <div class="brand">🔑 Treasurer Admin</div>
+    <div class="who">
+      <a href="/" class="link-btn">← Back to calendar</a>
+    </div>
+  </header>
+
+  <main class="tab-panel">
+    <div class="panel-header">
+      <h2>Family passwords</h2>
+    </div>
+    <p class="hint" style="margin-bottom:20px;">
+      Set an initial password for each family, or reset one if they've forgotten it.
+      Families can change their own password later from inside the app — resetting it
+      here overwrites whatever they had.
+    </p>
+    <div id="family-rows"></div>
+  </main>
+</div>
+
+<script src="/admin.js"></script>
+</body>
+</html>
