@@ -1,9 +1,15 @@
 # Pensacola Beach House Calendar
 
-A small shared scheduling tool for the Stevens, Furr, and Wagner families.
-Brett (Furr) publishes a batch of Thursday→Wednesday weeks a few months at a
-time; each family can request weeks they want, and Brett finalizes who gets
-which week. Anything nobody claims just shows **Open**.
+A small shared scheduling tool for the Stevens, Furr, and Wagner families —
+421 Fort Pickens Road, Pensacola Beach, FL 32561. Brett (Furr) publishes a
+batch of Thursday→Wednesday weeks a few months at a time; each family can
+request weeks they want, and Brett finalizes who gets which week. Anything
+nobody claims just shows **Open**.
+
+Photos live in `public/images/` (hero shot on login, sunset background,
+boardwalk banner on the Calendar tab, kitchen photo on the Documents tab) —
+swap any of those four files to change what's shown, no code changes needed
+as long as the filename stays the same.
 
 ## How it works
 

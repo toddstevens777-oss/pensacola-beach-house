@@ -10,25 +10,29 @@
 
 <div id="login-screen" class="screen">
   <div class="login-card">
-    <h1>🏖️ Pensacola Beach House</h1>
-    <p class="subtitle">Stevens &middot; Furr &middot; Wagner</p>
-    <form id="login-form">
-      <label>Who's checking in?
-        <select id="login-family" required>
-          <option value="" disabled selected>Choose a family</option>
-          <option value="Stevens">Stevens</option>
-          <option value="Furr">Furr</option>
-          <option value="Wagner">Wagner</option>
-        </select>
-      </label>
-      <label>Household password
-        <input id="login-password" type="password" required autocomplete="current-password" />
-      </label>
-      <button type="submit">Enter</button>
-      <p id="login-error" class="error"></p>
-    </form>
-    <p class="forgot-hint">Forgot your password? Ask your treasurer to reset it.</p>
-    <a href="/admin.html" class="admin-link">Manage family passwords (treasurer)</a>
+    <img class="login-hero" src="/images/hero-property.jpg" alt="421 Fort Pickens Road, Pensacola Beach" />
+    <div class="login-card-body">
+      <h1>🏖️ Pensacola Beach House</h1>
+      <p class="subtitle">Stevens &middot; Furr &middot; Wagner</p>
+      <p class="address">421 Fort Pickens Road &middot; Pensacola Beach, FL 32561</p>
+      <form id="login-form">
+        <label>Who's checking in?
+          <select id="login-family" required>
+            <option value="" disabled selected>Choose a family</option>
+            <option value="Stevens">Stevens</option>
+            <option value="Furr">Furr</option>
+            <option value="Wagner">Wagner</option>
+          </select>
+        </label>
+        <label>Household password
+          <input id="login-password" type="password" required autocomplete="current-password" />
+        </label>
+        <button type="submit" class="primary-btn full-width">Enter</button>
+        <p id="login-error" class="error"></p>
+      </form>
+      <p class="forgot-hint">Forgot your password? Ask your treasurer to reset it.</p>
+      <a href="/admin.html" class="admin-link">Manage family passwords (treasurer)</a>
+    </div>
   </div>
 </div>
 
@@ -47,6 +51,9 @@
   </header>
 
   <main id="tab-calendar" class="tab-panel">
+    <div class="tab-banner">
+      <img src="/images/banner-boardwalk.jpg" alt="Boardwalk to the beach" />
+    </div>
     <div class="panel-header">
       <h2>Scheduling periods</h2>
       <button id="new-period-btn" class="primary-btn admin-only" style="display:none;">+ New period</button>
@@ -67,6 +74,9 @@
   </main>
 
   <main id="tab-documents" class="tab-panel" style="display:none;">
+    <div class="tab-banner">
+      <img src="/images/documents-kitchen.jpg" alt="Beach house kitchen and living room" />
+    </div>
     <div class="panel-header">
       <h2>Documents</h2>
     </div>
@@ -123,7 +133,7 @@
       <div id="week-comments"></div>
       <form id="comment-form">
         <input id="comment-input" type="text" placeholder="Add a note for the other families..." />
-        <button type="submit">Send</button>
+        <button type="submit" class="secondary-btn">Send</button>
       </form>
     </div>
   </div>
