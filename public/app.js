@@ -345,45 +345,80 @@ function renderSummaryRow(week) {
     const unavail = week.unavailable.find((r) => r.family === fam);
     if (unavail) {
       const title = unavail.note ? escapeHtml(unavail.note).replace(/"/g, '&quot;') : '';
-      return `<td class="summary-cell cant" title="${title}">Can't${unavail.note ? ' 📝' : ''}</td>`;
+      return `<td class="summary-cell cant" title="${title}">Conflict${unavail.note ? ' 📝' : ''}</td>`;
     }
     return `<td class="summary-cell"></td>`;
   }).join('');
   const statusLabel = week.status === 'finalized' ? ` — ${week.finalized_family}` : '';
+
+  const assignOptions = [`<option value="">— Open —</option>`]
+    .concat(FAMILIES.map((f) => `<option value="${f}" ${week.finalized_family === f ? 'selected' : ''}>${f}</option>`))
+    .join('');
+
   return `
     <tr class="summary-row status-${week.status}" data-week-id="${week.id}">
       <td class="summary-week">${week.range_label}${statusLabel}</td>
       ${cells}
+      <td class="summary-assign-cell">
+        <select class="summary-assign" data-week-id="${week.id}">${assignOptions}</select>
+      </td>
     </tr>
   `;
+}
+
+let summaryPeriodId = null;
+
+function refreshSummaryBody() {
+  const period = periodsCache.find((p) => p.id === summaryPeriodId);
+  if (!period) return;
+  const body = $('#summary-body');
+  if (period.weeks.length === 0) {
+    body.innerHTML = `<p class="empty-state">No weeks in this period.</p>`;
+    return;
+  }
+  body.innerHTML = `
+    <table class="summary-table">
+      <thead><tr><th>Week</th>${FAMILIES.map((f) => `<th>${f}</th>`).join('')}<th>Assign</th></tr></thead>
+      <tbody>${period.weeks.map(renderSummaryRow).join('')}</tbody>
+    </table>
+    <p class="hint">Click a row to open that week's full notes and comments. Use "Assign" to finalize right here — hover a cell with 📝 to preview its private note.</p>
+  `;
+  body.querySelectorAll('tr[data-week-id]').forEach((tr) => {
+    tr.addEventListener('click', () => {
+      $('#summary-modal').style.display = 'none';
+      openWeekModal(tr.dataset.weekId);
+    });
+  });
+  body.querySelectorAll('.summary-assign').forEach((select) => {
+    select.addEventListener('click', (e) => e.stopPropagation());
+    select.addEventListener('change', async (e) => {
+      e.stopPropagation();
+      const weekId = select.dataset.weekId;
+      const family = select.value || null;
+      try {
+        const updated = await api(`/api/weeks/${weekId}/finalize`, { method: 'POST', body: { family } });
+        updateWeekEverywhere(updated);
+        refreshSummaryBody();
+      } catch (err) {
+        alert(err.message);
+      }
+    });
+  });
 }
 
 function openSummaryModal(periodId) {
   const period = periodsCache.find((p) => p.id === periodId);
   if (!period) return;
+  summaryPeriodId = periodId;
   $('#summary-title').textContent = `${period.label} — assignment summary`;
-  const body = $('#summary-body');
-  if (period.weeks.length === 0) {
-    body.innerHTML = `<p class="empty-state">No weeks in this period.</p>`;
-  } else {
-    body.innerHTML = `
-      <table class="summary-table">
-        <thead><tr><th>Week</th>${FAMILIES.map((f) => `<th>${f}</th>`).join('')}</tr></thead>
-        <tbody>${period.weeks.map(renderSummaryRow).join('')}</tbody>
-      </table>
-      <p class="hint">Click any row to open that week. Hover a cell with 📝 to preview its private note.</p>
-    `;
-    body.querySelectorAll('tr[data-week-id]').forEach((tr) => {
-      tr.addEventListener('click', () => {
-        $('#summary-modal').style.display = 'none';
-        openWeekModal(tr.dataset.weekId);
-      });
-    });
-  }
+  refreshSummaryBody();
   $('#summary-modal').style.display = 'flex';
 }
 
-$('#summary-close').addEventListener('click', () => { $('#summary-modal').style.display = 'none'; });
+$('#summary-close').addEventListener('click', () => {
+  $('#summary-modal').style.display = 'none';
+  summaryPeriodId = null;
+});
 
 function escapeHtml(str) {
   const div = document.createElement('div');
@@ -487,7 +522,7 @@ function renderWeekModal() {
 
   const unavailDiv = $('#week-unavailable');
   unavailDiv.innerHTML = week.unavailable.length === 0
-    ? `<p class="empty-state" style="padding:8px 0;">Nobody has said they can't make it.</p>`
+    ? `<p class="empty-state" style="padding:8px 0;">Nobody has flagged a conflict yet.</p>`
     : week.unavailable.map(renderResponseRow).join('');
 
   // Request / mark-unavailable actions for the logged-in family — mutually exclusive
@@ -519,7 +554,7 @@ function renderWeekModal() {
 
     const unavailBtn = document.createElement('button');
     unavailBtn.className = myUnavailable ? 'unavailable-btn active' : 'unavailable-btn';
-    unavailBtn.textContent = myUnavailable ? `✕ Marked unavailable — click to undo` : `${me.family} can't make it`;
+    unavailBtn.textContent = myUnavailable ? `✕ Conflict flagged — click to undo` : `We have a conflict this week`;
     unavailBtn.addEventListener('click', () => (myUnavailable ? withdrawResponse() : submitResponse('unavailable')));
     actionsDiv.appendChild(unavailBtn);
   }

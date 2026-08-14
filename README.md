@@ -25,8 +25,9 @@ as long as the filename stays the same.
 - **Finalizing**: Only the Furr login can assign a week to a family or
   reopen it. Finalized weeks are locked (no more responses) until Brett
   reopens them. Furr also gets a **📋 Summary** button on each period — a
-  table of every week against all three families' status and notes, so
-  assignments don't require opening each week one at a time.
+  table of every week against all three families' status and notes, with an
+  **Assign** dropdown right in the table so Brett can finalize (or reopen) a
+  week without leaving that consolidated view.
 - **Documents tab**: placeholder for now — it's where financial statements
   and other treasurer documents can go in a later phase.
 

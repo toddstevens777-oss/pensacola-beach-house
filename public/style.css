@@ -215,6 +215,7 @@ button { font-family: inherit; cursor: pointer; }
 .dot.family-Stevens { background: var(--stevens); }
 .dot.family-Furr { background: var(--furr); }
 .dot.family-Wagner { background: var(--wagner); }
+.dot.conflict { background: #dc2626; }
 
 .period-block { margin-bottom: 36px; }
 .period-header { display: flex; align-items: baseline; justify-content: space-between; margin-bottom: 12px; }
@@ -237,11 +238,25 @@ button { font-family: inherit; cursor: pointer; }
 .summary-row.status-finalized { background: #f0fdf4; }
 .summary-cell { color: var(--muted); }
 .summary-cell.wants { color: #15803d; font-weight: 600; }
-.summary-cell.cant { color: #b91c1c; }
+.summary-cell.cant { color: #b91c1c; font-weight: 600; }
 .summary-cell.assigned { font-weight: 700; }
 .summary-cell.assigned.Stevens { color: var(--stevens); }
 .summary-cell.assigned.Furr { color: var(--furr); }
 .summary-cell.assigned.Wagner { color: var(--wagner); }
+.summary-assign-cell { white-space: nowrap; }
+.summary-assign {
+  font-size: 0.85rem;
+  font-weight: 600;
+  padding: 6px 8px;
+  border-radius: 6px;
+  border: 1.5px solid var(--border);
+  background: white;
+  color: var(--ink);
+  cursor: pointer;
+  max-width: 140px;
+}
+.summary-assign:hover { border-color: #94a3b8; }
+.summary-assign:focus { outline: none; border-color: #4338ca; box-shadow: 0 0 0 2px rgba(67,56,202,0.15); }
 
 .week-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 12px; }
 .week-card {
@@ -305,24 +320,25 @@ button { font-family: inherit; cursor: pointer; }
 .finalize-btn.reopen { border-color: #dc2626; color: #dc2626; }
 #week-response-actions { display: flex; gap: 8px; flex-wrap: wrap; }
 .unavailable-pill {
-  font-size: 0.72rem;
-  padding: 2px 8px;
+  font-size: 0.74rem;
+  padding: 2px 9px;
   border-radius: 999px;
-  color: var(--muted);
-  font-weight: 600;
-  background: var(--bg);
-  border: 1px solid var(--border);
+  color: #b91c1c;
+  font-weight: 700;
+  background: #fee2e2;
+  border: 1px solid #fca5a5;
 }
 .note-lock { color: var(--muted); font-size: 0.8rem; cursor: help; }
 .unavailable-btn {
   padding: 10px 16px;
   border-radius: 8px;
-  border: 1px solid var(--border);
+  border: 1.5px solid #dc2626;
   background: white;
-  font-weight: 600;
-  color: var(--muted);
+  font-weight: 700;
+  color: #b91c1c;
 }
-.unavailable-btn.active { background: #fee2e2; border-color: #dc2626; color: #dc2626; }
+.unavailable-btn:hover { background: #fef2f2; }
+.unavailable-btn.active { background: #dc2626; border-color: #dc2626; color: white; }
 
 /* ---------- Admin page ---------- */
 .family-row {
