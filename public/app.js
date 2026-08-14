@@ -259,6 +259,15 @@ function renderPeriods() {
       </div>
     `;
     if (me.isAdmin) {
+      const actionsWrap = document.createElement('div');
+      actionsWrap.className = 'period-header-actions';
+
+      const summaryBtn = document.createElement('button');
+      summaryBtn.className = 'period-summary-btn';
+      summaryBtn.textContent = '📋 Summary';
+      summaryBtn.addEventListener('click', () => openSummaryModal(period.id));
+      actionsWrap.appendChild(summaryBtn);
+
       const del = document.createElement('button');
       del.className = 'period-delete';
       del.textContent = 'Delete period';
@@ -267,7 +276,9 @@ function renderPeriods() {
         await api(`/api/periods/${period.id}`, { method: 'DELETE' });
         await loadPeriods();
       });
-      header.appendChild(del);
+      actionsWrap.appendChild(del);
+
+      header.appendChild(actionsWrap);
     }
     block.appendChild(header);
 
@@ -303,13 +314,76 @@ function renderWeekCard(week) {
       `</div>`;
   }
 
+  let unavailableHtml = '';
+  if (week.status !== 'finalized' && week.unavailable.length) {
+    unavailableHtml = `<div class="week-req-pills">` +
+      week.unavailable.map((r) => `<span class="unavailable-pill">✕ ${r.family}</span>`).join('') +
+      `</div>`;
+  }
+
   card.innerHTML = `
     <div class="week-range">${week.range_label}</div>
     ${statusHtml}
     ${pillsHtml}
+    ${unavailableHtml}
   `;
   return card;
 }
+
+// ---------- Admin summary table (Brett's assignment view) ----------
+
+function renderSummaryRow(week) {
+  const cells = FAMILIES.map((fam) => {
+    if (week.finalized_family === fam) {
+      return `<td class="summary-cell assigned ${fam}">✓ Assigned</td>`;
+    }
+    const req = week.requests.find((r) => r.family === fam);
+    if (req) {
+      const title = req.note ? escapeHtml(req.note).replace(/"/g, '&quot;') : '';
+      return `<td class="summary-cell wants" title="${title}">Wants it${req.note ? ' 📝' : ''}</td>`;
+    }
+    const unavail = week.unavailable.find((r) => r.family === fam);
+    if (unavail) {
+      const title = unavail.note ? escapeHtml(unavail.note).replace(/"/g, '&quot;') : '';
+      return `<td class="summary-cell cant" title="${title}">Can't${unavail.note ? ' 📝' : ''}</td>`;
+    }
+    return `<td class="summary-cell"></td>`;
+  }).join('');
+  const statusLabel = week.status === 'finalized' ? ` — ${week.finalized_family}` : '';
+  return `
+    <tr class="summary-row status-${week.status}" data-week-id="${week.id}">
+      <td class="summary-week">${week.range_label}${statusLabel}</td>
+      ${cells}
+    </tr>
+  `;
+}
+
+function openSummaryModal(periodId) {
+  const period = periodsCache.find((p) => p.id === periodId);
+  if (!period) return;
+  $('#summary-title').textContent = `${period.label} — assignment summary`;
+  const body = $('#summary-body');
+  if (period.weeks.length === 0) {
+    body.innerHTML = `<p class="empty-state">No weeks in this period.</p>`;
+  } else {
+    body.innerHTML = `
+      <table class="summary-table">
+        <thead><tr><th>Week</th>${FAMILIES.map((f) => `<th>${f}</th>`).join('')}</tr></thead>
+        <tbody>${period.weeks.map(renderSummaryRow).join('')}</tbody>
+      </table>
+      <p class="hint">Click any row to open that week. Hover a cell with 📝 to preview its private note.</p>
+    `;
+    body.querySelectorAll('tr[data-week-id]').forEach((tr) => {
+      tr.addEventListener('click', () => {
+        $('#summary-modal').style.display = 'none';
+        openWeekModal(tr.dataset.weekId);
+      });
+    });
+  }
+  $('#summary-modal').style.display = 'flex';
+}
+
+$('#summary-close').addEventListener('click', () => { $('#summary-modal').style.display = 'none'; });
 
 function escapeHtml(str) {
   const div = document.createElement('div');
@@ -391,48 +465,63 @@ function renderWeekModal() {
     statusRow.innerHTML = `<span style="color:var(--muted); font-weight:700;">Open — no one has requested this week yet</span>`;
   }
 
-  // Requests list
-  const reqDiv = $('#week-requests');
-  if (week.requests.length === 0) {
-    reqDiv.innerHTML = `<p class="empty-state" style="padding:8px 0;">No requests yet.</p>`;
-  } else {
-    reqDiv.innerHTML = week.requests.map((r) => `
+  // Requests list (note text only visible to author's family or admin)
+  function renderResponseRow(r) {
+    const noteHtml = r.note
+      ? escapeHtml(r.note)
+      : r.notePrivate
+        ? `<span class="note-lock" title="Only ${r.family} and Brett can see this note">🔒 private note</span>`
+        : '';
+    return `
       <div class="request-row">
-        <span><span class="pill ${r.family}">${r.family}</span> ${r.note ? escapeHtml(r.note) : ''}</span>
+        <span><span class="pill ${r.family}">${r.family}</span> ${noteHtml}</span>
         <span class="comment-meta">${fmtWhen(r.created_at)}</span>
       </div>
-    `).join('');
+    `;
   }
 
-  // Request/withdraw action for logged-in family
-  const actionsDiv = $('#week-request-actions');
+  const reqDiv = $('#week-requests');
+  reqDiv.innerHTML = week.requests.length === 0
+    ? `<p class="empty-state" style="padding:8px 0;">No requests yet.</p>`
+    : week.requests.map(renderResponseRow).join('');
+
+  const unavailDiv = $('#week-unavailable');
+  unavailDiv.innerHTML = week.unavailable.length === 0
+    ? `<p class="empty-state" style="padding:8px 0;">Nobody has said they can't make it.</p>`
+    : week.unavailable.map(renderResponseRow).join('');
+
+  // Request / mark-unavailable actions for the logged-in family — mutually exclusive
+  const actionsDiv = $('#week-response-actions');
   actionsDiv.innerHTML = '';
   const myRequest = week.requests.find((r) => r.family === me.family);
-  if (week.status !== 'finalized') {
-    if (myRequest) {
-      const btn = document.createElement('button');
-      btn.className = 'secondary-btn';
-      btn.textContent = `Withdraw ${me.family}'s request`;
-      btn.addEventListener('click', async () => {
-        const updated = await api(`/api/weeks/${week.id}/request`, { method: 'DELETE' });
-        updateWeekEverywhere(updated);
-      });
-      actionsDiv.appendChild(btn);
-    } else {
-      const btn = document.createElement('button');
-      btn.className = 'primary-btn';
-      btn.textContent = `Request this week for ${me.family}`;
-      btn.addEventListener('click', async () => {
-        const note = prompt('Optional note for the other families (dates flexibility, etc.)') || '';
-        try {
-          const updated = await api(`/api/weeks/${week.id}/request`, { method: 'POST', body: { note } });
-          updateWeekEverywhere(updated);
-        } catch (err) {
-          alert(err.message);
-        }
-      });
-      actionsDiv.appendChild(btn);
+  const myUnavailable = week.unavailable.find((r) => r.family === me.family);
+
+  async function submitResponse(kind) {
+    const note = prompt('Optional private note for Brett (only he—and your family—will see this)') || '';
+    try {
+      const updated = await api(`/api/weeks/${week.id}/response`, { method: 'POST', body: { kind, note } });
+      updateWeekEverywhere(updated);
+    } catch (err) {
+      alert(err.message);
     }
+  }
+  async function withdrawResponse() {
+    const updated = await api(`/api/weeks/${week.id}/response`, { method: 'DELETE' });
+    updateWeekEverywhere(updated);
+  }
+
+  if (week.status !== 'finalized') {
+    const requestBtn = document.createElement('button');
+    requestBtn.className = myRequest ? 'primary-btn' : 'secondary-btn';
+    requestBtn.textContent = myRequest ? `✓ Requested by ${me.family} — click to withdraw` : `Request this week for ${me.family}`;
+    requestBtn.addEventListener('click', () => (myRequest ? withdrawResponse() : submitResponse('requested')));
+    actionsDiv.appendChild(requestBtn);
+
+    const unavailBtn = document.createElement('button');
+    unavailBtn.className = myUnavailable ? 'unavailable-btn active' : 'unavailable-btn';
+    unavailBtn.textContent = myUnavailable ? `✕ Marked unavailable — click to undo` : `${me.family} can't make it`;
+    unavailBtn.addEventListener('click', () => (myUnavailable ? withdrawResponse() : submitResponse('unavailable')));
+    actionsDiv.appendChild(unavailBtn);
   }
 
   // Admin finalize controls

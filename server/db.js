@@ -28,12 +28,14 @@ CREATE TABLE IF NOT EXISTS weeks (
   sort_index INTEGER NOT NULL
 );
 
-CREATE TABLE IF NOT EXISTS requests (
+CREATE TABLE IF NOT EXISTS week_responses (
   id TEXT PRIMARY KEY,
   week_id TEXT NOT NULL REFERENCES weeks(id),
   family TEXT NOT NULL,
-  note TEXT,
-  created_at TEXT NOT NULL
+  kind TEXT NOT NULL CHECK (kind IN ('requested', 'unavailable')),
+  note TEXT,             -- private: only the author's family + admin (Furr) can see this
+  created_at TEXT NOT NULL,
+  UNIQUE(week_id, family) -- a family has at most one stance per week
 );
 
 CREATE TABLE IF NOT EXISTS comments (
@@ -52,5 +54,26 @@ CREATE TABLE IF NOT EXISTS family_credentials (
   updated_by TEXT NOT NULL -- 'self' or 'admin'
 );
 `);
+
+// One-time migration: earlier versions stored requests in a separate
+// `requests` table. Fold any existing rows into week_responses (as kind
+// 'requested'), then drop the old table.
+const oldRequestsTable = db
+  .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='requests'")
+  .get();
+if (oldRequestsTable) {
+  const oldRows = db.prepare('SELECT * FROM requests').all();
+  if (oldRows.length) {
+    const insert = db.prepare(
+      `INSERT OR IGNORE INTO week_responses (id, week_id, family, kind, note, created_at)
+       VALUES (?, ?, ?, 'requested', ?, ?)`
+    );
+    const tx = db.transaction((rows) => {
+      for (const row of rows) insert.run(row.id, row.week_id, row.family, row.note, row.created_at);
+    });
+    tx(oldRows);
+  }
+  db.exec('DROP TABLE requests');
+}
 
 module.exports = db;

@@ -146,10 +146,26 @@ app.post('/api/admin/reset-password', (req, res) => {
 
 // ---------- Periods & Weeks ----------
 
-function serializeWeek(row) {
-  const requests = db
-    .prepare('SELECT id, family, note, created_at FROM requests WHERE week_id = ? ORDER BY created_at ASC')
+// A response's `note` is private: only visible to the family who wrote it,
+// or to the scheduling admin (Furr), who needs full visibility to make
+// assignments. Everyone else sees that a family responded, just not why.
+function redactResponse(row, viewer) {
+  const canSeeNote = viewer.isAdmin || viewer.family === row.family;
+  return {
+    id: row.id,
+    family: row.family,
+    note: canSeeNote ? row.note : null,
+    notePrivate: !canSeeNote && !!row.note,
+    created_at: row.created_at,
+  };
+}
+
+function serializeWeek(row, viewer) {
+  const responses = db
+    .prepare('SELECT id, family, kind, note, created_at FROM week_responses WHERE week_id = ? ORDER BY created_at ASC')
     .all(row.id);
+  const requests = responses.filter((r) => r.kind === 'requested').map((r) => redactResponse(r, viewer));
+  const unavailable = responses.filter((r) => r.kind === 'unavailable').map((r) => redactResponse(r, viewer));
   const comments = db
     .prepare('SELECT id, family, message, created_at FROM comments WHERE week_id = ? ORDER BY created_at ASC')
     .all(row.id);
@@ -163,6 +179,7 @@ function serializeWeek(row) {
     finalized_family: row.finalized_family,
     sort_index: row.sort_index,
     requests,
+    unavailable,
     comments,
   };
 }
@@ -173,7 +190,7 @@ app.get('/api/periods', requireAuth, (req, res) => {
     const weeks = db
       .prepare('SELECT * FROM weeks WHERE period_id = ? ORDER BY sort_index ASC')
       .all(p.id)
-      .map(serializeWeek);
+      .map((w) => serializeWeek(w, req.session));
     return { ...p, weeks };
   });
   res.json(result);
@@ -218,7 +235,7 @@ app.delete('/api/periods/:id', requireAuth, requireAdmin, (req, res) => {
   const tx = db.transaction(() => {
     const weekIds = db.prepare('SELECT id FROM weeks WHERE period_id = ?').all(id).map((w) => w.id);
     for (const weekId of weekIds) {
-      db.prepare('DELETE FROM requests WHERE week_id = ?').run(weekId);
+      db.prepare('DELETE FROM week_responses WHERE week_id = ?').run(weekId);
       db.prepare('DELETE FROM comments WHERE week_id = ?').run(weekId);
     }
     db.prepare('DELETE FROM weeks WHERE period_id = ?').run(id);
@@ -228,49 +245,59 @@ app.delete('/api/periods/:id', requireAuth, requireAdmin, (req, res) => {
   res.json({ ok: true });
 });
 
-// ---------- Requests (self-serve claim) ----------
+// Recompute a week's public status from its responses. Unavailability never
+// affects this — only requests do. Finalized weeks are left untouched here;
+// callers guard against responding to a finalized week in the first place.
+function recomputeWeekStatus(weekId) {
+  const week = db.prepare('SELECT * FROM weeks WHERE id = ?').get(weekId);
+  if (!week || week.status === 'finalized') return;
+  const requestedCount = db
+    .prepare("SELECT COUNT(*) as c FROM week_responses WHERE week_id = ? AND kind = 'requested'")
+    .get(weekId).c;
+  const nextStatus = requestedCount > 0 ? 'requested' : 'open';
+  if (nextStatus !== week.status) {
+    db.prepare('UPDATE weeks SET status = ? WHERE id = ?').run(nextStatus, weekId);
+  }
+}
 
-app.post('/api/weeks/:id/request', requireAuth, (req, res) => {
+// ---------- Responses: a family requests a week OR marks it unavailable ----------
+// Mutually exclusive — at most one response per family per week.
+
+app.post('/api/weeks/:id/response', requireAuth, (req, res) => {
   const { id } = req.params;
-  const { note } = req.body || {};
+  const { kind, note } = req.body || {};
+  if (!['requested', 'unavailable'].includes(kind)) {
+    return res.status(400).json({ error: "kind must be 'requested' or 'unavailable'" });
+  }
   const week = db.prepare('SELECT * FROM weeks WHERE id = ?').get(id);
   if (!week) return res.status(404).json({ error: 'Week not found' });
   if (week.status === 'finalized') {
     return res.status(400).json({ error: 'This week is already finalized' });
   }
 
-  const existing = db
-    .prepare('SELECT * FROM requests WHERE week_id = ? AND family = ?')
-    .get(id, req.session.family);
-  if (existing) {
-    return res.status(400).json({ error: 'Your family already requested this week' });
-  }
-
-  db.prepare('INSERT INTO requests (id, week_id, family, note, created_at) VALUES (?, ?, ?, ?, ?)').run(
-    nanoid(),
-    id,
-    req.session.family,
-    note || null,
-    new Date().toISOString()
-  );
-  db.prepare("UPDATE weeks SET status = 'requested' WHERE id = ? AND status = 'open'").run(id);
+  const tx = db.transaction(() => {
+    db.prepare('DELETE FROM week_responses WHERE week_id = ? AND family = ?').run(id, req.session.family);
+    db.prepare(
+      'INSERT INTO week_responses (id, week_id, family, kind, note, created_at) VALUES (?, ?, ?, ?, ?, ?)'
+    ).run(nanoid(), id, req.session.family, kind, note || null, new Date().toISOString());
+    recomputeWeekStatus(id);
+  });
+  tx();
 
   const updated = db.prepare('SELECT * FROM weeks WHERE id = ?').get(id);
-  res.json(serializeWeek(updated));
+  res.json(serializeWeek(updated, req.session));
 });
 
-app.delete('/api/weeks/:id/request', requireAuth, (req, res) => {
+app.delete('/api/weeks/:id/response', requireAuth, (req, res) => {
   const { id } = req.params;
-  db.prepare('DELETE FROM requests WHERE week_id = ? AND family = ?').run(id, req.session.family);
-
-  const remaining = db.prepare('SELECT COUNT(*) as c FROM requests WHERE week_id = ?').get(id).c;
-  const week = db.prepare('SELECT * FROM weeks WHERE id = ?').get(id);
-  if (week.status === 'requested' && remaining === 0) {
-    db.prepare("UPDATE weeks SET status = 'open' WHERE id = ?").run(id);
-  }
+  const tx = db.transaction(() => {
+    db.prepare('DELETE FROM week_responses WHERE week_id = ? AND family = ?').run(id, req.session.family);
+    recomputeWeekStatus(id);
+  });
+  tx();
 
   const updated = db.prepare('SELECT * FROM weeks WHERE id = ?').get(id);
-  res.json(serializeWeek(updated));
+  res.json(serializeWeek(updated, req.session));
 });
 
 // ---------- Finalize (admin only) ----------
@@ -289,10 +316,10 @@ app.post('/api/weeks/:id/finalize', requireAuth, requireAdmin, (req, res) => {
   }
 
   const updated = db.prepare('SELECT * FROM weeks WHERE id = ?').get(id);
-  res.json(serializeWeek(updated));
+  res.json(serializeWeek(updated, req.session));
 });
 
-// ---------- Comments (back-and-forth negotiation) ----------
+// ---------- Comments (back-and-forth negotiation, visible to everyone) ----------
 
 app.post('/api/weeks/:id/comments', requireAuth, (req, res) => {
   const { id } = req.params;
@@ -310,7 +337,7 @@ app.post('/api/weeks/:id/comments', requireAuth, (req, res) => {
   );
 
   const updated = db.prepare('SELECT * FROM weeks WHERE id = ?').get(id);
-  res.json(serializeWeek(updated));
+  res.json(serializeWeek(updated, req.session));
 });
 
 app.get('/api/health', (req, res) => res.json({ ok: true }));

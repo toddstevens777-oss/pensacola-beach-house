@@ -16,12 +16,17 @@ as long as the filename stays the same.
 - **Periods**: Brett (logged in as Furr) clicks **+ New period**, gives it a
   label (e.g. "Fall 2026") and a date range. The app automatically generates
   every Thursday→Wednesday week inside that range.
-- **Requesting**: Any family can click a week and request it, optionally
-  with a note. A week can have requests from more than one family — that's
-  the "back and forth" — and everyone can leave notes on a week to negotiate.
+- **Requesting**: Any family can click a week and either request it or mark
+  themselves unavailable — the two are mutually exclusive, and either can
+  come with a short private note. That note is only visible to the family
+  who wrote it and to Brett (Furr) — other families just see *that* you
+  responded, not why. The general "Notes" thread underneath stays visible to
+  everyone — that's the back-and-forth channel for negotiating swaps.
 - **Finalizing**: Only the Furr login can assign a week to a family or
-  reopen it. Finalized weeks are locked (no more requests) until Brett
-  reopens them.
+  reopen it. Finalized weeks are locked (no more responses) until Brett
+  reopens them. Furr also gets a **📋 Summary** button on each period — a
+  table of every week against all three families' status and notes, so
+  assignments don't require opening each week one at a time.
 - **Documents tab**: placeholder for now — it's where financial statements
   and other treasurer documents can go in a later phase.
 

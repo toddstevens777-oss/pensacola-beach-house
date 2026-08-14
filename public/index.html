@@ -65,6 +65,7 @@
       <span class="legend-item"><span class="dot family-Stevens"></span> Stevens</span>
       <span class="legend-item"><span class="dot family-Furr"></span> Furr</span>
       <span class="legend-item"><span class="dot family-Wagner"></span> Wagner</span>
+      <span class="legend-item">✕ Can't make it</span>
     </p>
 
     <div id="periods-container"></div>
@@ -120,8 +121,14 @@
     <div class="week-section">
       <h4>Requests</h4>
       <div id="week-requests"></div>
-      <div id="week-request-actions"></div>
     </div>
+
+    <div class="week-section">
+      <h4>Can't make it</h4>
+      <div id="week-unavailable"></div>
+    </div>
+
+    <div id="week-response-actions" class="week-section"></div>
 
     <div class="week-section admin-only" style="display:none;">
       <h4>Finalize (Brett/Furr only)</h4>
@@ -136,6 +143,15 @@
         <button type="submit" class="secondary-btn">Send</button>
       </form>
     </div>
+  </div>
+</div>
+
+<!-- Admin summary modal -->
+<div id="summary-modal" class="modal-backdrop" style="display:none;">
+  <div class="modal extra-wide">
+    <button class="modal-close" id="summary-close">&times;</button>
+    <h3 id="summary-title"></h3>
+    <div id="summary-body"></div>
   </div>
 </div>
 
