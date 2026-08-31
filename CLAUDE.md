@@ -35,9 +35,13 @@ secret lives in the repo — set in Render's dashboard env vars.
 ## Deploy pipeline (already working, don't reinvent)
 
 - GitHub: `toddstevens777-oss/pensacola-beach-house` (private), `main` branch
-- Render: web service, auto-deploys on push to `main`, persistent disk
-  mounted at `/data` (`DATA_DIR=/data` env var) so the SQLite file survives
-  redeploys
+- Render: web service, auto-deploys on push to `main`. **Critical**: this
+  requires a persistent Disk mounted at `/data` with env var `DATA_DIR=/data`
+  set — without both, the SQLite file lives on ephemeral storage and gets
+  wiped on every deploy/restart. (This actually happened on 2026-08-31: no
+  disk had ever been attached, AND `server/db.js` had a bug where it ignored
+  `DATA_DIR` entirely — fixed then, but confirm the Disk is still attached
+  before ever assuming data is safe.)
 - `./deploy.sh "message"` is the standard way to ship a change: stages
   everything, commits, pushes to `main`. Render picks it up automatically
   (live within a minute or two). There is no staging environment or CI —
