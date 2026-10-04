@@ -41,6 +41,38 @@
       here overwrites whatever they had.
     </p>
     <div id="family-rows"></div>
+
+    <div class="panel-header" style="margin-top:40px;">
+      <h2>Email notifications</h2>
+    </div>
+    <p class="hint" style="margin-bottom:12px;">
+      Brett is emailed when a late request comes in after most of a period is assigned, and the
+      requesting family is emailed the result once that week is finalized. Settings live in
+      Render's environment variables.
+    </p>
+    <p id="notify-status" class="hint" style="margin-bottom:20px;"></p>
+
+    <div class="family-row">
+      <div class="family-row-info"><span class="family-row-status">Send a test email</span></div>
+      <div class="family-row-form">
+        <select id="notify-test-group">
+          <option value="admin">Brett (admin alerts)</option>
+          <option value="Stevens">Stevens family</option>
+          <option value="Wagner">Wagner family</option>
+        </select>
+        <button id="notify-test-btn" type="button" class="secondary-btn">Send test</button>
+        <span id="notify-test-msg" class="family-row-msg"></span>
+      </div>
+    </div>
+
+    <div class="family-row">
+      <div class="family-row-info"><span class="family-row-status">One-time catch-up for requests already waiting</span></div>
+      <div class="family-row-form">
+        <button id="notify-preview-btn" type="button" class="secondary-btn">Preview</button>
+        <span id="notify-preview-msg" class="family-row-msg"></span>
+      </div>
+    </div>
+    <div id="notify-preview" style="margin:8px 0 24px;"></div>
   </main>
 </div>
 

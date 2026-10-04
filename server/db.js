@@ -53,6 +53,19 @@ CREATE TABLE IF NOT EXISTS family_credentials (
   updated_at TEXT NOT NULL,
   updated_by TEXT NOT NULL -- 'self' or 'admin'
 );
+
+-- Email notifications (additive; never touches the tables above).
+-- One row per (week, family) whose request qualified for an admin alert.
+CREATE TABLE IF NOT EXISTS request_alerts (
+  id TEXT PRIMARY KEY,
+  week_id TEXT NOT NULL,
+  family TEXT NOT NULL,
+  reason TEXT NOT NULL,          -- late_request | threshold_crossed | catch_up
+  triggered_at TEXT NOT NULL,
+  admin_notified_at TEXT,        -- when it went out in an admin alert email
+  outcome_notified_at TEXT,      -- when the requesting family was told the result
+  UNIQUE(week_id, family)
+);
 `);
 
 // One-time migration: earlier versions stored requests in a separate

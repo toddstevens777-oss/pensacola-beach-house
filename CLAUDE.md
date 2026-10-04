@@ -69,3 +69,24 @@ App serves on http://localhost:3000. First run creates `data/beachhouse.db`.
   docs/financials) — not a bug if it looks empty.
 - Never commit real family passwords, the admin key, or the session secret
   anywhere in this repo (code, comments, or commit messages).
+
+## Email notifications (server/notify.js)
+
+- **Admin alert (Brett only):** a Stevens/Wagner request for an open week arrives while >= 50% of
+  that period's weeks are finalized (period must have >= 8 weeks), or Brett's finalizing pushes a
+  period over 50% while such requests are pending. Furr's own requests never alert.
+- **Outcome email:** when the week of an alerted request is finalized, the requesting family is told
+  who got it. Reopening sends nothing; re-assigning a finalized week to a different family re-notifies.
+- **Batching:** first event opens a 15-minute window; one email per recipient group goes out when it
+  closes, built from the database state at that moment. Private notes are never included.
+- **State:** additive table `request_alerts` (one row per week+family). Existing tables are untouched.
+- **Modes (`NOTIFY_MODE`):** `off` | `log` | `send`. Unset = `send` only if `GMAIL_USER`,
+  `GMAIL_APP_PASSWORD` and `ADMIN_ALERT_EMAILS` are all set, else `off` (complete no-op). `log` prints
+  emails instead of sending (local testing only; it marks them as handled).
+- **Render env vars (never commit values):** `GMAIL_USER`, `GMAIL_APP_PASSWORD`, `ADMIN_ALERT_EMAILS`,
+  `STEVENS_EMAILS`, `WAGNER_EMAILS` (comma-separated), optional `ALERT_THRESHOLD_PCT` (50),
+  `ALERT_MIN_WEEKS` (8), `BATCH_MINUTES` (15), `APP_URL`, `REPLY_TO`, `NOTIFY_MODE`.
+- **Admin page tools (`/admin.html`, admin-key gated):** status, send test email per group, and a
+  one-time catch-up (preview, then send) for requests already pending when email was switched on.
+- Testing locally: the Mac `node_modules` binary for better-sqlite3 won't load in the Linux shell;
+  copy `server/`, `public/` and the package files to a scratch dir and `npm ci` there.

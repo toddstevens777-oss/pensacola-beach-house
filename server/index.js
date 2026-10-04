@@ -18,6 +18,7 @@ const {
   requireAuth,
   requireAdmin,
 } = require('./auth');
+const notify = require('./notify');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -144,6 +145,51 @@ app.post('/api/admin/reset-password', (req, res) => {
   res.json({ ok: true });
 });
 
+// ---------- Email notification admin tools (admin-key gated) ----------
+
+function adminKeyGate(req, res) {
+  const ip = req.ip;
+  if (!checkAdminRateLimit(ip)) {
+    res.status(429).json({ error: 'Too many attempts. Try again in a few minutes.' });
+    return false;
+  }
+  if (!checkAdminKey((req.body || {}).adminKey)) {
+    recordAdminFailure(ip);
+    res.status(401).json({ error: 'Incorrect admin key' });
+    return false;
+  }
+  clearAdminFailures(ip);
+  return true;
+}
+
+app.post('/api/admin/notify/status', (req, res) => {
+  if (!adminKeyGate(req, res)) return;
+  res.json(notify.status());
+});
+
+app.post('/api/admin/notify/test', async (req, res) => {
+  if (!adminKeyGate(req, res)) return;
+  try {
+    res.json(await notify.sendTest((req.body || {}).group));
+  } catch (e) {
+    res.status(400).json({ error: e.message });
+  }
+});
+
+app.post('/api/admin/notify/catchup-preview', (req, res) => {
+  if (!adminKeyGate(req, res)) return;
+  res.json({ periods: notify.catchupPreview() });
+});
+
+app.post('/api/admin/notify/catchup', async (req, res) => {
+  if (!adminKeyGate(req, res)) return;
+  try {
+    res.json(await notify.runCatchup());
+  } catch (e) {
+    res.status(400).json({ error: e.message });
+  }
+});
+
 // ---------- Periods & Weeks ----------
 
 // A response's `note` is private: only visible to the family who wrote it,
@@ -237,6 +283,7 @@ app.delete('/api/periods/:id', requireAuth, requireAdmin, (req, res) => {
     for (const weekId of weekIds) {
       db.prepare('DELETE FROM week_responses WHERE week_id = ?').run(weekId);
       db.prepare('DELETE FROM comments WHERE week_id = ?').run(weekId);
+      db.prepare('DELETE FROM request_alerts WHERE week_id = ?').run(weekId);
     }
     db.prepare('DELETE FROM weeks WHERE period_id = ?').run(id);
     db.prepare('DELETE FROM periods WHERE id = ?').run(id);
@@ -284,6 +331,15 @@ app.post('/api/weeks/:id/response', requireAuth, (req, res) => {
   });
   tx();
 
+  // Email alerts (no-op unless configured). Must never break saving a request.
+  if (kind === 'requested') {
+    try {
+      notify.onRequest(id, req.session.family);
+    } catch (e) {
+      console.error('[notify] hook failed:', e);
+    }
+  }
+
   const updated = db.prepare('SELECT * FROM weeks WHERE id = ?').get(id);
   res.json(serializeWeek(updated, req.session));
 });
@@ -315,6 +371,13 @@ app.post('/api/weeks/:id/finalize', requireAuth, requireAdmin, (req, res) => {
     db.prepare("UPDATE weeks SET status = 'finalized', finalized_family = ? WHERE id = ?").run(family, id);
   }
 
+  // Email alerts (no-op unless configured). `week` is the state before this change.
+  try {
+    notify.onFinalizeChange(id, { status: week.status, finalized_family: week.finalized_family });
+  } catch (e) {
+    console.error('[notify] hook failed:', e);
+  }
+
   const updated = db.prepare('SELECT * FROM weeks WHERE id = ?').get(id);
   res.json(serializeWeek(updated, req.session));
 });
@@ -344,4 +407,5 @@ app.get('/api/health', (req, res) => res.json({ ok: true }));
 
 app.listen(PORT, () => {
   console.log(`Beach house calendar running on http://localhost:${PORT}`);
+  notify.start();
 });
