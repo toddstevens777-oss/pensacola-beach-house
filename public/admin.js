@@ -101,7 +101,8 @@ async function loadNotifyStatus() {
       : 'OFF — email is not configured yet';
     el.textContent = `Status: ${modeText}. Recipients — Brett: ${r.admin}, Stevens: ${r.Stevens}, Wagner: ${r.Wagner}. ` +
       `Alerts fire at ${st.thresholdPct}% assigned (periods of ${st.minWeeks}+ weeks), batched every ${st.batchMinutes} min. ` +
-      `Waiting to send: ${st.pendingAdminAlerts} admin alert(s), ${st.pendingOutcomeEmails} outcome email(s).`;
+      `Waiting to send: ${st.pendingAdminAlerts} admin alert(s), ${st.pendingOutcomeEmails} outcome email(s). ` +
+      `New-series announcement emails: ${st.announceNewSeries ? 'ON' : 'OFF'} (${st.announcementRecipients} recipients, Furr list: ${r.Furr}).`;
   } catch (err) {
     el.textContent = err.message;
   }
@@ -113,6 +114,20 @@ $('#notify-test-btn').addEventListener('click', async () => {
   msg.style.color = '';
   try {
     const res = await api('/api/admin/notify/test', { adminKey, group: $('#notify-test-group').value });
+    msg.textContent = `✓ Sent to ${res.sentTo.join(', ')}`;
+    msg.style.color = 'var(--furr)';
+  } catch (err) {
+    msg.textContent = err.message;
+    msg.style.color = '#dc2626';
+  }
+});
+
+$('#notify-sample-btn').addEventListener('click', async () => {
+  const msg = $('#notify-sample-msg');
+  msg.textContent = 'Sending…';
+  msg.style.color = '';
+  try {
+    const res = await api('/api/admin/notify/sample-announcement', { adminKey });
     msg.textContent = `✓ Sent to ${res.sentTo.join(', ')}`;
     msg.style.color = 'var(--furr)';
   } catch (err) {

@@ -88,5 +88,14 @@ App serves on http://localhost:3000. First run creates `data/beachhouse.db`.
   `ALERT_MIN_WEEKS` (8), `BATCH_MINUTES` (15), `APP_URL`, `REPLY_TO`, `NOTIFY_MODE`.
 - **Admin page tools (`/admin.html`, admin-key gated):** status, send test email per group, and a
   one-time catch-up (preview, then send) for requests already pending when email was switched on.
+- **New-series announcement:** when Brett creates a period, one email (after the same 15-minute window)
+  goes to all Stevens, Wagner and Furr addresses asking them to mark each week Requested or Can't make
+  it in the app and not to reply. Optional "note to families" on the New period form is included.
+  Deleting the period inside the window cancels it. Off unless `ANNOUNCE_NEW_SERIES=on` (Render env var).
+  Table `period_announcements`. Recipients: `STEVENS_EMAILS` + `WAGNER_EMAILS` + `FURR_EMAILS`
+  (falls back to `ADMIN_ALERT_EMAILS` if `FURR_EMAILS` is unset). Admin page has a "Send SAMPLE" button
+  (Stevens addresses only).
+- **Reply-To:** family-facing emails (announcement, outcomes) reply to Brett (first `ADMIN_ALERT_EMAILS`
+  address, or `REPLY_TO_FAMILIES`) and say "please don't reply"; Brett's own alerts reply to the Gmail account.
 - Testing locally: the Mac `node_modules` binary for better-sqlite3 won't load in the Linux shell;
   copy `server/`, `public/` and the package files to a scratch dir and `npm ci` there.

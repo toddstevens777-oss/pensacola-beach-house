@@ -457,7 +457,8 @@ $('#period-form').addEventListener('submit', async (e) => {
     return;
   }
   try {
-    await api('/api/periods', { method: 'POST', body: { label, start_date, end_date } });
+    const note = $('#period-note').value.trim();
+    await api('/api/periods', { method: 'POST', body: { label, start_date, end_date, note } });
     $('#period-modal').style.display = 'none';
     periodStartPicker.close();
     periodEndPicker.close();

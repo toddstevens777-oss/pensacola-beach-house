@@ -66,6 +66,14 @@ CREATE TABLE IF NOT EXISTS request_alerts (
   outcome_notified_at TEXT,      -- when the requesting family was told the result
   UNIQUE(week_id, family)
 );
+
+-- One row per new series that should be announced by email (cancelled if the period is deleted first).
+CREATE TABLE IF NOT EXISTS period_announcements (
+  period_id TEXT PRIMARY KEY,
+  note TEXT,                     -- optional line from the admin, shown in the email
+  created_at TEXT NOT NULL,
+  sent_at TEXT
+);
 `);
 
 // One-time migration: earlier versions stored requests in a separate

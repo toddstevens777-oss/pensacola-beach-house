@@ -176,6 +176,15 @@ app.post('/api/admin/notify/test', async (req, res) => {
   }
 });
 
+app.post('/api/admin/notify/sample-announcement', async (req, res) => {
+  if (!adminKeyGate(req, res)) return;
+  try {
+    res.json(await notify.sendSampleAnnouncement());
+  } catch (e) {
+    res.status(400).json({ error: e.message });
+  }
+});
+
 app.post('/api/admin/notify/catchup-preview', (req, res) => {
   if (!adminKeyGate(req, res)) return;
   res.json({ periods: notify.catchupPreview() });
@@ -243,7 +252,7 @@ app.get('/api/periods', requireAuth, (req, res) => {
 });
 
 app.post('/api/periods', requireAuth, requireAdmin, (req, res) => {
-  const { label, start_date, end_date } = req.body || {};
+  const { label, start_date, end_date, note } = req.body || {};
   if (!label || !start_date || !end_date) {
     return res.status(400).json({ error: 'label, start_date, end_date are required' });
   }
@@ -273,6 +282,13 @@ app.post('/api/periods', requireAuth, requireAdmin, (req, res) => {
   });
   tx();
 
+  // New-series announcement email (no-op unless enabled). Must never break creating a period.
+  try {
+    notify.onPeriodCreated(periodId, note);
+  } catch (e) {
+    console.error('[notify] hook failed:', e);
+  }
+
   res.status(201).json({ id: periodId, weeksCreated: generated.length });
 });
 
@@ -286,6 +302,7 @@ app.delete('/api/periods/:id', requireAuth, requireAdmin, (req, res) => {
       db.prepare('DELETE FROM request_alerts WHERE week_id = ?').run(weekId);
     }
     db.prepare('DELETE FROM weeks WHERE period_id = ?').run(id);
+    db.prepare('DELETE FROM period_announcements WHERE period_id = ?').run(id);
     db.prepare('DELETE FROM periods WHERE id = ?').run(id);
   });
   tx();

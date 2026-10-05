@@ -12,6 +12,11 @@
 //    one email goes out per recipient group, built from the database state at that moment
 //    (so a quick correction inside the window never produces a wrong email).
 //  - Private notes are never included in any email.
+//  - New-series announcement: when the admin creates a period, everyone (Stevens, Wagner and
+//    Furr addresses) gets one email asking them to mark each week Requested / Can't make it in
+//    the app. Same batching window; deleting the period inside the window cancels it. Sent only
+//    when ANNOUNCE_NEW_SERIES is on. Family-facing emails say "please don't reply" and set
+//    Reply-To to the admin so a stray reply reaches the scheduler.
 //
 // Modes (NOTIFY_MODE): off | log | send. If unset: "send" when GMAIL_USER,
 // GMAIL_APP_PASSWORD and ADMIN_ALERT_EMAILS are all set, otherwise "off" (a complete
@@ -43,13 +48,36 @@ function cfg() {
   };
 }
 
-const GROUP_ENV = { admin: 'ADMIN_ALERT_EMAILS', Stevens: 'STEVENS_EMAILS', Wagner: 'WAGNER_EMAILS' };
+const GROUP_ENV = { admin: 'ADMIN_ALERT_EMAILS', Stevens: 'STEVENS_EMAILS', Wagner: 'WAGNER_EMAILS', Furr: 'FURR_EMAILS' };
 
 function emails(envName) {
   return (process.env[envName] || '')
     .split(/[,;\s]+/)
     .map((s) => s.trim())
     .filter((s) => s.includes('@'));
+}
+
+function announceOn() {
+  return ['on', 'true', '1', 'yes'].includes((process.env.ANNOUNCE_NEW_SERIES || '').trim().toLowerCase());
+}
+
+// Replies to family-facing emails should reach the scheduling admin, not whoever owns the Gmail account.
+function familyReplyTo() {
+  return (process.env.REPLY_TO_FAMILIES || '').trim() || emails(GROUP_ENV.admin)[0] || cfg().gmailUser;
+}
+
+// Everyone who should hear about a new series: Stevens + Wagner + Furr (falls back to the admin
+// address until FURR_EMAILS is set), de-duplicated.
+function announcementRecipients() {
+  const furr = emails(GROUP_ENV.Furr);
+  const all = [...emails(GROUP_ENV.Stevens), ...emails(GROUP_ENV.Wagner), ...(furr.length ? furr : emails(GROUP_ENV.admin))];
+  const seen = new Set();
+  return all.filter((a) => {
+    const k = a.toLowerCase();
+    if (seen.has(k)) return false;
+    seen.add(k);
+    return true;
+  });
 }
 
 function mode() {
@@ -80,20 +108,21 @@ function getTransporter() {
 
 const outbox = []; // log mode only: lets tests inspect what would have been sent
 
-async function deliver(to, { subject, text, html }) {
+async function deliver(to, { subject, text, html }, opts = {}) {
   const m = mode();
+  const c = cfg();
+  const replyTo = opts.replyTo || process.env.REPLY_TO || c.gmailUser;
   if (m === 'log') {
-    outbox.push({ to, subject, text, html });
+    outbox.push({ to, subject, text, html, replyTo });
     if (outbox.length > 200) outbox.shift();
-    console.log(`[notify:log] To: ${to.join(', ')}\nSubject: ${subject}\n\n${text}\n`);
+    console.log(`[notify:log] To: ${to.join(', ')}\nSubject: ${subject}\nReply-To: ${replyTo}\n\n${text}\n`);
     return;
   }
   if (m !== 'send') throw new Error('Email notifications are off');
-  const c = cfg();
   await getTransporter().sendMail({
     from: `"Beach House Calendar" <${c.gmailUser}>`,
     to: to.join(', '),
-    replyTo: process.env.REPLY_TO || c.gmailUser,
+    replyTo,
     subject,
     text,
     html,
@@ -181,6 +210,19 @@ function outcomePending() {
     .all();
 }
 
+// New series that were announced-on at creation, not yet emailed, and still exist.
+function pendingAnnouncements() {
+  return db
+    .prepare(
+      `SELECT a.period_id, a.note, p.label, p.start_date, p.end_date,
+              (SELECT COUNT(*) FROM weeks w WHERE w.period_id = p.id) AS week_count
+         FROM period_announcements a JOIN periods p ON p.id = a.period_id
+        WHERE a.sent_at IS NULL
+        ORDER BY p.created_at ASC`
+    )
+    .all();
+}
+
 function markIds(column, ids) {
   if (!ids.length) return;
   const marks = ids.map(() => '?').join(',');
@@ -189,12 +231,15 @@ function markIds(column, ids) {
 
 // ---------- Email content ----------
 
-function wrapHtml(bodyHtml) {
+const FOOTER_FAMILY = "This is an automated message. Please don't reply to it.";
+const FOOTER_ADMIN = 'Automated message from the Pensacola Beach House calendar. No need to reply. Private family notes are never included.';
+
+function wrapHtml(bodyHtml, footer = FOOTER_FAMILY) {
   const c = cfg();
   return `<div style="font-family:-apple-system,Segoe UI,Roboto,Arial,sans-serif;max-width:560px;color:#1f2937;line-height:1.5">
 ${bodyHtml}
 <p><a href="${esc(c.appUrl)}">Open the calendar</a></p>
-<p style="color:#6b7280;font-size:12px;margin-top:24px">Automated message from the Pensacola Beach House calendar. Private family notes are never included.</p>
+<p style="color:#6b7280;font-size:12px;margin-top:24px">${esc(footer)}</p>
 </div>`;
 }
 
@@ -229,8 +274,8 @@ function buildAdminEmail(rows) {
     }
     html += '</ul>';
   }
-  text += `\nReview and assign: ${c.appUrl}\n\n(Automated message from the Beach House calendar. Private family notes are not included.)\n`;
-  return { subject, text, html: wrapHtml(html) };
+  text += `\nReview and assign: ${c.appUrl}\n\n(Automated message from the Beach House calendar. No need to reply. Private family notes are not included.)\n`;
+  return { subject, text, html: wrapHtml(html, FOOTER_ADMIN) };
 }
 
 function buildOutcomeEmail(family, rows) {
@@ -247,7 +292,35 @@ function buildOutcomeEmail(family, rows) {
     html += `<li>${esc(line)}</li>`;
   }
   html += '</ul>';
-  text += `\nCalendar: ${c.appUrl}\n\n(Automated message from the Beach House calendar. Private family notes are not included.)\n`;
+  text += `\nCalendar: ${c.appUrl}\n\n${FOOTER_FAMILY}\n`;
+  return { subject, text, html: wrapHtml(html) };
+}
+
+function buildAnnouncementEmail(rows, { sample = false } = {}) {
+  const c = cfg();
+  const n = rows.length;
+  const subject = (sample ? '[SAMPLE] ' : '') +
+    (n === 1 ? `Beach House: new dates open for requests (${rows[0].label})` : `Beach House: ${n} new series open for requests`);
+  const intro = `Brett has published ${n === 1 ? 'a new series' : `${n} new series`} of dates on the Pensacola Beach House calendar.`;
+  const ask = `Please log in to the calendar and, for each week in ${plural(n, 'this series', 'these series')}, mark it Requested if you'd like it, or Can't make it if you can't. Marking the weeks you can't make is just as helpful as requesting the ones you want, because it helps Brett plan the assignments. Your choices count only when they're made in the calendar.`;
+  const sampleNote = 'THIS IS A SAMPLE of the email families will receive when Brett publishes a new series. No action needed.';
+
+  let text = sample ? `${sampleNote}\n\n` : '';
+  let html = sample ? `<p style="background:#fef3c7;padding:8px 12px;border-radius:6px"><strong>${esc(sampleNote)}</strong></p>` : '';
+  text += `${intro}\n\n`;
+  html += `<p>${esc(intro)}</p>`;
+  for (const r of rows) {
+    const line = `${r.label}: ${formatRange(r.start_date, r.end_date)} (${r.week_count} ${plural(r.week_count, 'week', 'weeks')})`;
+    text += `${line}\n`;
+    html += `<p style="margin-bottom:4px"><strong>${esc(line)}</strong></p>`;
+    if (r.note) {
+      text += `Note from Brett: ${r.note}\n`;
+      html += `<p style="margin-top:0">Note from Brett: ${esc(r.note)}</p>`;
+    }
+    text += '\n';
+  }
+  text += `${ask}\n\nOpen the calendar: ${c.appUrl}\n\n${FOOTER_FAMILY}\n`;
+  html += `<p>${esc(ask)}</p>`;
   return { subject, text, html: wrapHtml(html) };
 }
 
@@ -271,7 +344,7 @@ async function flush() {
   if (mode() === 'off') return { skipped: true };
   if (flushing) return { busy: true };
   flushing = true;
-  const result = { adminSent: 0, outcomesSent: 0, errors: [], warnings: [] };
+  const result = { adminSent: 0, outcomesSent: 0, announced: 0, errors: [], warnings: [] };
   try {
     const adm = adminPending();
     if (adm.length) {
@@ -301,11 +374,28 @@ async function flush() {
         continue;
       }
       try {
-        await deliver(to, buildOutcomeEmail(family, rows));
+        await deliver(to, buildOutcomeEmail(family, rows), { replyTo: familyReplyTo() });
         markIds('outcome_notified_at', rows.map((r) => r.alert_id));
         result.outcomesSent += rows.length;
       } catch (e) {
         result.errors.push(`outcome for ${family}: ${e.message}`);
+      }
+    }
+
+    const anns = announceOn() ? pendingAnnouncements() : [];
+    if (anns.length) {
+      const to = announcementRecipients();
+      if (!to.length) {
+        result.warnings.push('no recipients configured for the new-series announcement');
+      } else {
+        try {
+          await deliver(to, buildAnnouncementEmail(anns), { replyTo: familyReplyTo() });
+          const marks = anns.map(() => '?').join(',');
+          db.prepare(`UPDATE period_announcements SET sent_at = ? WHERE period_id IN (${marks})`).run(nowISO(), ...anns.map((a) => a.period_id));
+          result.announced = anns.length;
+        } catch (e) {
+          result.errors.push(`announcement: ${e.message}`);
+        }
       }
     }
   } finally {
@@ -324,10 +414,22 @@ async function flush() {
 }
 
 function hasPending() {
-  return adminPending().length > 0 || outcomePending().length > 0;
+  return adminPending().length > 0 || outcomePending().length > 0 || (announceOn() && pendingAnnouncements().length > 0);
 }
 
 // ---------- Hooks called from the routes ----------
+
+// The admin just created a new period (series of weeks).
+function onPeriodCreated(periodId, note) {
+  if (mode() === 'off' || !announceOn()) return;
+  const clean = typeof note === 'string' ? note.trim().slice(0, 500) : '';
+  db.prepare('INSERT OR IGNORE INTO period_announcements (period_id, note, created_at) VALUES (?, ?, ?)').run(
+    periodId,
+    clean || null,
+    nowISO()
+  );
+  scheduleFlush();
+}
 
 // A family just submitted a "requested" response for a week.
 function onRequest(weekId, family) {
@@ -379,7 +481,11 @@ function status() {
       admin: emails(GROUP_ENV.admin).length,
       Stevens: emails(GROUP_ENV.Stevens).length,
       Wagner: emails(GROUP_ENV.Wagner).length,
+      Furr: emails(GROUP_ENV.Furr).length,
     },
+    announceNewSeries: announceOn(),
+    announcementRecipients: announcementRecipients().length,
+    pendingAnnouncements: announceOn() ? pendingAnnouncements().length : 0,
     thresholdPct: c.thresholdPct,
     minWeeks: c.minWeeks,
     batchMinutes: c.batchMinutes,
@@ -389,7 +495,7 @@ function status() {
 }
 
 async function sendTest(group) {
-  const key = ['admin', 'Stevens', 'Wagner'].includes(group) ? group : 'admin';
+  const key = ['admin', 'Stevens', 'Wagner', 'Furr'].includes(group) ? group : 'admin';
   const to = emails(GROUP_ENV[key]);
   if (!to.length) throw new Error(`No recipients configured for "${key}"`);
   if (mode() === 'off') {
@@ -400,8 +506,27 @@ async function sendTest(group) {
     subject: 'Beach House: test email',
     text,
     html: wrapHtml(`<p>${esc(text)}</p>`),
-  });
+  }, key === 'admin' ? {} : { replyTo: familyReplyTo() });
   return { ok: true, mode: mode(), group: key, sentTo: to };
+}
+
+// Sends a clearly-labelled SAMPLE of the new-series announcement to the Stevens addresses only,
+// so the wording can be reviewed before anything goes to families.
+async function sendSampleAnnouncement() {
+  const to = emails(GROUP_ENV.Stevens);
+  if (!to.length) throw new Error('No Stevens recipients configured (STEVENS_EMAILS)');
+  if (mode() === 'off') {
+    throw new Error('Sending is not configured yet (needs GMAIL_USER, GMAIL_APP_PASSWORD and ADMIN_ALERT_EMAILS)');
+  }
+  const sample = [{
+    label: 'Winter 2027',
+    start_date: '2027-01-07',
+    end_date: '2027-04-07',
+    week_count: 13,
+    note: 'Please get your requests in by Friday.',
+  }];
+  await deliver(to, buildAnnouncementEmail(sample, { sample: true }), { replyTo: familyReplyTo() });
+  return { ok: true, mode: mode(), sentTo: to };
 }
 
 // What a catch-up would include: pending non-admin requests on open weeks in
@@ -451,6 +576,8 @@ async function runCatchup() {
 module.exports = {
   onRequest,
   onFinalizeChange,
+  onPeriodCreated,
+  sendSampleAnnouncement,
   start,
   flush,
   status,
@@ -462,4 +589,6 @@ module.exports = {
   _periodStats: periodStats,
   _adminPending: adminPending,
   _outcomePending: outcomePending,
+  _pendingAnnouncements: pendingAnnouncements,
+  _buildAnnouncementEmail: buildAnnouncementEmail,
 };
