@@ -76,6 +76,12 @@ CREATE TABLE IF NOT EXISTS period_announcements (
 );
 `);
 
+// Additive migration: manual-archive timestamp for a series (NULL = not manually archived).
+// Series also archive automatically once their last week has ended (see archive.js).
+if (!db.prepare('PRAGMA table_info(periods)').all().some((c) => c.name === 'archived_at')) {
+  db.exec('ALTER TABLE periods ADD COLUMN archived_at TEXT');
+}
+
 // One-time migration: earlier versions stored requests in a separate
 // `requests` table. Fold any existing rows into week_responses (as kind
 // 'requested'), then drop the old table.

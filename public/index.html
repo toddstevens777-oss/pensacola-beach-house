@@ -56,7 +56,10 @@
     </div>
     <div class="panel-header">
       <h2>Scheduling periods</h2>
-      <button id="new-period-btn" class="primary-btn admin-only" style="display:none;">+ New period</button>
+      <div class="panel-header-actions">
+        <a id="export-csv-btn" class="secondary-btn admin-only" style="display:none;" href="/api/export/weeks.csv" download>⬇ Export CSV</a>
+        <button id="new-period-btn" class="primary-btn admin-only" style="display:none;">+ New period</button>
+      </div>
     </div>
 
     <p class="legend">
@@ -68,6 +71,7 @@
       <span class="legend-item">✕ Can't make it</span>
     </p>
 
+    <div id="attention-box" class="attention-box" style="display:none;"></div>
     <div id="periods-container"></div>
     <p id="empty-state" style="display:none;" class="empty-state">
       No scheduling periods yet. When Brett publishes the next batch of dates, they'll show up here.

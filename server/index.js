@@ -19,6 +19,7 @@ const {
   requireAdmin,
 } = require('./auth');
 const notify = require('./notify');
+const { todayCT, isWeekPast, archiveState, isPeriodArchived } = require('./archive');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -233,6 +234,7 @@ function serializeWeek(row, viewer) {
     status: row.status,
     finalized_family: row.finalized_family,
     sort_index: row.sort_index,
+    past: isWeekPast(row),
     requests,
     unavailable,
     comments,
@@ -241,13 +243,23 @@ function serializeWeek(row, viewer) {
 
 app.get('/api/periods', requireAuth, (req, res) => {
   const periods = db.prepare('SELECT * FROM periods ORDER BY start_date ASC').all();
-  const result = periods.map((p) => {
+  const result = [];
+  for (const p of periods) {
+    const state = archiveState(p);
+    // Archived series are for the scheduling admin only.
+    if (state.archived && !req.session.isAdmin) continue;
     const weeks = db
       .prepare('SELECT * FROM weeks WHERE period_id = ? ORDER BY sort_index ASC')
       .all(p.id)
       .map((w) => serializeWeek(w, req.session));
-    return { ...p, weeks };
-  });
+    result.push({
+      ...p,
+      archived: state.archived,
+      archive_reason: state.reason, // 'manual' | 'ended' | null
+      restorable: state.restorable,
+      weeks,
+    });
+  }
   res.json(result);
 });
 
@@ -292,13 +304,24 @@ app.post('/api/periods', requireAuth, requireAdmin, (req, res) => {
   res.status(201).json({ id: periodId, weeksCreated: generated.length });
 });
 
+// Deleting is only for a series nobody has touched yet (e.g. created with the wrong dates).
+// Anything with requests, conflicts, notes or assignments must be archived instead, so history is kept.
 app.delete('/api/periods/:id', requireAuth, requireAdmin, (req, res) => {
   const { id } = req.params;
+  const hasActivity = db
+    .prepare(
+      `SELECT
+         (SELECT COUNT(*) FROM week_responses wr JOIN weeks w ON w.id = wr.week_id WHERE w.period_id = @id) +
+         (SELECT COUNT(*) FROM comments c JOIN weeks w ON w.id = c.week_id WHERE w.period_id = @id) +
+         (SELECT COUNT(*) FROM weeks WHERE period_id = @id AND status != 'open') AS n`
+    )
+    .get({ id }).n;
+  if (hasActivity > 0) {
+    return res.status(400).json({ error: 'This series already has requests, notes or assignments. Archive it instead of deleting it.' });
+  }
   const tx = db.transaction(() => {
     const weekIds = db.prepare('SELECT id FROM weeks WHERE period_id = ?').all(id).map((w) => w.id);
     for (const weekId of weekIds) {
-      db.prepare('DELETE FROM week_responses WHERE week_id = ?').run(weekId);
-      db.prepare('DELETE FROM comments WHERE week_id = ?').run(weekId);
       db.prepare('DELETE FROM request_alerts WHERE week_id = ?').run(weekId);
     }
     db.prepare('DELETE FROM weeks WHERE period_id = ?').run(id);
@@ -307,6 +330,65 @@ app.delete('/api/periods/:id', requireAuth, requireAdmin, (req, res) => {
   });
   tx();
   res.json({ ok: true });
+});
+
+// Archive a series early by hand (it also archives itself once its last week has passed).
+app.post('/api/periods/:id/archive', requireAuth, requireAdmin, (req, res) => {
+  const p = db.prepare('SELECT * FROM periods WHERE id = ?').get(req.params.id);
+  if (!p) return res.status(404).json({ error: 'Series not found' });
+  if (!p.archived_at) {
+    db.prepare('UPDATE periods SET archived_at = ? WHERE id = ?').run(new Date().toISOString(), p.id);
+  }
+  res.json({ ok: true });
+});
+
+// Undo a manual archive. A series whose last week has already passed stays archived.
+app.post('/api/periods/:id/restore', requireAuth, requireAdmin, (req, res) => {
+  const p = db.prepare('SELECT * FROM periods WHERE id = ?').get(req.params.id);
+  if (!p) return res.status(404).json({ error: 'Series not found' });
+  if (archiveState({ ...p, archived_at: null }).archived) {
+    return res.status(400).json({ error: 'This series has finished, so it stays in the archive.' });
+  }
+  db.prepare('UPDATE periods SET archived_at = NULL WHERE id = ?').run(p.id);
+  res.json({ ok: true });
+});
+
+// ---------- CSV export (admin): every week of every series, archived or not ----------
+
+function csvCell(v) {
+  let s = v === null || v === undefined ? '' : String(v);
+  if (/^[=+\-@\t\r]/.test(s)) s = "'" + s; // keep spreadsheet apps from running text as a formula
+  return /[",\n\r]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
+}
+
+app.get('/api/export/weeks.csv', requireAuth, requireAdmin, (req, res) => {
+  const today = todayCT();
+  const periods = db.prepare('SELECT * FROM periods ORDER BY start_date ASC').all();
+  const header = [
+    'Series', 'Series start', 'Series end', 'Series status',
+    'Week start (Thu)', 'Week end (Wed)', 'Week status', 'Assigned to',
+    'Requested by', "Can't make it", 'Notes count',
+  ];
+  const lines = [header.map(csvCell).join(',')];
+  for (const p of periods) {
+    const state = archiveState(p, today);
+    const seriesStatus = !state.archived ? 'Active' : state.reason === 'manual' ? 'Archived (manual)' : 'Archived (ended)';
+    const weeks = db.prepare('SELECT * FROM weeks WHERE period_id = ? ORDER BY sort_index ASC').all(p.id);
+    for (const w of weeks) {
+      const resp = db.prepare('SELECT family, kind FROM week_responses WHERE week_id = ? ORDER BY family').all(w.id);
+      const notes = db.prepare('SELECT COUNT(*) AS c FROM comments WHERE week_id = ?').get(w.id).c;
+      lines.push([
+        p.label, p.start_date, p.end_date, seriesStatus,
+        w.start_date, w.end_date, w.status, w.finalized_family || '',
+        resp.filter((r) => r.kind === 'requested').map((r) => r.family).join('; '),
+        resp.filter((r) => r.kind === 'unavailable').map((r) => r.family).join('; '),
+        notes,
+      ].map(csvCell).join(','));
+    }
+  }
+  res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+  res.setHeader('Content-Disposition', `attachment; filename="beach-house-weeks-${today}.csv"`);
+  res.send('\ufeff' + lines.join('\r\n') + '\r\n');
 });
 
 // Recompute a week's public status from its responses. Unavailability never
@@ -337,6 +419,12 @@ app.post('/api/weeks/:id/response', requireAuth, (req, res) => {
   if (!week) return res.status(404).json({ error: 'Week not found' });
   if (week.status === 'finalized') {
     return res.status(400).json({ error: 'This week is already finalized' });
+  }
+  if (isWeekPast(week)) {
+    return res.status(400).json({ error: 'This week has already passed' });
+  }
+  if (isPeriodArchived(week.period_id)) {
+    return res.status(400).json({ error: 'This series has been archived' });
   }
 
   const tx = db.transaction(() => {

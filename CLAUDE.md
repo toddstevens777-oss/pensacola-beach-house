@@ -99,3 +99,19 @@ App serves on http://localhost:3000. First run creates `data/beachhouse.db`.
   address, or `REPLY_TO_FAMILIES`) and say "please don't reply"; Brett's own alerts reply to the Gmail account.
 - Testing locally: the Mac `node_modules` binary for better-sqlite3 won't load in the Linux shell;
   copy `server/`, `public/` and the package files to a scratch dir and `npm ci` there.
+
+## Series archiving (server/archive.js)
+
+- A series (period) is **archived** when its last week has ended (computed from dates in America/Chicago,
+  nothing scheduled or stored) OR Brett archived it early (`periods.archived_at`, additive column). Pending
+  requests don't keep a finished series active. Archiving never deletes anything.
+- Only the scheduling admin (Furr) sees archived series (collapsed "Archived series" section at the bottom).
+  `/api/periods` omits them for everyone else and flags each series with `archived`, `archive_reason`
+  (`manual`|`ended`) and `restorable`. Weeks carry `past`.
+- Requests/conflicts are refused on past weeks and archived series. Brett can still assign/reopen weeks.
+- Archived series and past weeks are ignored by the email alert logic (sweep, catch-up, pending alerts, outcomes).
+- "Needs your attention" strip (admin only) lists weeks with pending requests across all active series.
+- `POST /api/periods/:id/archive` and `/restore` (restore only for early-archived series that haven't ended).
+- `DELETE /api/periods/:id` is only allowed for a series with no requests, conflicts, notes or assignments
+  (e.g. created with wrong dates); anything with history must be archived instead.
+- `GET /api/export/weeks.csv` (admin only): every week of every series, archived or not, no private notes.

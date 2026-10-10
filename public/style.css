@@ -224,6 +224,22 @@ button { font-family: inherit; cursor: pointer; }
 .period-range { color: var(--muted); font-size: 0.85rem; }
 .period-header-actions { display: flex; align-items: center; gap: 16px; }
 .period-summary-btn { background: none; border: none; color: #4338ca; font-size: 0.8rem; font-weight: 600; text-decoration: underline; }
+.panel-header-actions { display: flex; align-items: center; gap: 10px; }
+a.secondary-btn { text-decoration: none; display: inline-block; }
+.period-archive { background: none; border: none; color: var(--muted); font-size: 0.8rem; text-decoration: underline; }
+.archived-tag { font-size: 0.7rem; font-weight: 600; color: var(--muted); background: #f1f5f9; border-radius: 999px; padding: 2px 8px; vertical-align: middle; margin-left: 6px; }
+.period-block.archived { opacity: 0.85; }
+.week-card.past { opacity: 0.55; }
+.archive-section { margin-top: 12px; border-top: 1px solid var(--border); padding-top: 12px; }
+.archive-section > summary { cursor: pointer; font-weight: 700; color: var(--muted); margin-bottom: 16px; }
+.attention-box { border: 1px solid var(--requested); background: #fffbeb; border-radius: 10px; padding: 12px 14px; margin-bottom: 24px; }
+.attention-title { font-weight: 700; margin-bottom: 8px; }
+.attention-list { display: flex; flex-direction: column; gap: 4px; max-height: 260px; overflow-y: auto; }
+.attention-row { display: flex; align-items: center; gap: 12px; text-align: left; background: #fff; border: 1px solid var(--border); border-radius: 8px; padding: 8px 10px; cursor: pointer; font: inherit; }
+.attention-row:hover { background: #fef9c3; }
+.attention-week { font-weight: 600; min-width: 170px; }
+.attention-series { color: var(--muted); flex: 1; }
+.attention-pills { display: flex; gap: 4px; }
 .period-delete { background: none; border: none; color: #dc2626; font-size: 0.8rem; text-decoration: underline; }
 
 /* ---------- Admin summary table ---------- */

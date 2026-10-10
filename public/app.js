@@ -2,6 +2,7 @@ const FAMILIES = ['Stevens', 'Furr', 'Wagner'];
 
 let me = null; // { family, isAdmin }
 let periodsCache = [];
+let archiveOpen = false;
 let openWeekId = null;
 
 const $ = (sel) => document.querySelector(sel);
@@ -238,64 +239,159 @@ async function loadPeriods() {
   renderPeriods();
 }
 
-function renderPeriods() {
-  const container = $('#periods-container');
-  container.innerHTML = '';
-  $('#empty-state').style.display = periodsCache.length === 0 ? 'block' : 'none';
+function periodIsUntouched(period) {
+  return period.weeks.every(
+    (w) => w.status === 'open' && w.requests.length === 0 && w.unavailable.length === 0 && w.comments.length === 0
+  );
+}
 
-  // newest period first
-  const sorted = [...periodsCache].sort((a, b) => (a.start_date < b.start_date ? 1 : -1));
+function buildPeriodBlock(period) {
+  const archived = !!period.archived;
+  const block = document.createElement('div');
+  block.className = 'period-block' + (archived ? ' archived' : '');
 
-  for (const period of sorted) {
-    const block = document.createElement('div');
-    block.className = 'period-block';
+  const header = document.createElement('div');
+  header.className = 'period-header';
+  const reasonLabel = period.archive_reason === 'manual' ? 'Archived early' : 'Finished';
+  header.innerHTML = `
+    <div>
+      <h3>${escapeHtml(period.label)}${archived ? ` <span class="archived-tag">${reasonLabel}</span>` : ''}</h3>
+      <div class="period-range">${period.start_date} – ${period.end_date}</div>
+    </div>
+  `;
+  if (me.isAdmin) {
+    const actionsWrap = document.createElement('div');
+    actionsWrap.className = 'period-header-actions';
 
-    const header = document.createElement('div');
-    header.className = 'period-header';
-    header.innerHTML = `
-      <div>
-        <h3>${escapeHtml(period.label)}</h3>
-        <div class="period-range">${period.start_date} – ${period.end_date}</div>
-      </div>
-    `;
-    if (me.isAdmin) {
-      const actionsWrap = document.createElement('div');
-      actionsWrap.className = 'period-header-actions';
+    const summaryBtn = document.createElement('button');
+    summaryBtn.className = 'period-summary-btn';
+    summaryBtn.textContent = '📋 Summary';
+    summaryBtn.addEventListener('click', () => openSummaryModal(period.id));
+    actionsWrap.appendChild(summaryBtn);
 
-      const summaryBtn = document.createElement('button');
-      summaryBtn.className = 'period-summary-btn';
-      summaryBtn.textContent = '📋 Summary';
-      summaryBtn.addEventListener('click', () => openSummaryModal(period.id));
-      actionsWrap.appendChild(summaryBtn);
+    if (!archived) {
+      const pending = period.weeks.filter((w) => !w.past && w.status === 'requested').length;
+      const arch = document.createElement('button');
+      arch.className = 'period-archive';
+      arch.textContent = 'Archive';
+      arch.addEventListener('click', async () => {
+        const extra = pending
+          ? `\n\n${pending} week${pending === 1 ? ' still has' : 's still have'} pending requests. They'll be left as they are and no emails will go out for them.`
+          : '';
+        if (!confirm(`Archive "${period.label}"? It will move to the Archived section. Nothing is deleted.${extra}`)) return;
+        await api(`/api/periods/${period.id}/archive`, { method: 'POST' });
+        await loadPeriods();
+      });
+      actionsWrap.appendChild(arch);
+    } else if (period.restorable) {
+      const restore = document.createElement('button');
+      restore.className = 'period-archive';
+      restore.textContent = 'Restore';
+      restore.addEventListener('click', async () => {
+        await api(`/api/periods/${period.id}/restore`, { method: 'POST' });
+        await loadPeriods();
+      });
+      actionsWrap.appendChild(restore);
+    }
 
+    // Delete is only offered for a series nobody has touched yet (e.g. created with the wrong dates).
+    if (!archived && periodIsUntouched(period)) {
       const del = document.createElement('button');
       del.className = 'period-delete';
-      del.textContent = 'Delete period';
+      del.textContent = 'Delete (unused)';
       del.addEventListener('click', async () => {
-        if (!confirm(`Delete "${period.label}" and all its weeks? This can't be undone.`)) return;
-        await api(`/api/periods/${period.id}`, { method: 'DELETE' });
+        if (!confirm(`Delete "${period.label}"? Nobody has responded to it yet. This can't be undone.`)) return;
+        try {
+          await api(`/api/periods/${period.id}`, { method: 'DELETE' });
+        } catch (err) {
+          alert(err.message);
+        }
         await loadPeriods();
       });
       actionsWrap.appendChild(del);
-
-      header.appendChild(actionsWrap);
     }
-    block.appendChild(header);
 
-    const grid = document.createElement('div');
-    grid.className = 'week-grid';
+    header.appendChild(actionsWrap);
+  }
+  block.appendChild(header);
+
+  const grid = document.createElement('div');
+  grid.className = 'week-grid';
+  for (const week of period.weeks) {
+    grid.appendChild(renderWeekCard(week));
+  }
+  block.appendChild(grid);
+  return block;
+}
+
+// Brett's cross-series to-do list: weeks with pending requests that haven't passed yet.
+function renderAttention(activePeriods) {
+  const box = $('#attention-box');
+  box.innerHTML = '';
+  if (!me.isAdmin) { box.style.display = 'none'; return; }
+  const items = [];
+  for (const period of activePeriods) {
     for (const week of period.weeks) {
-      grid.appendChild(renderWeekCard(week));
+      if (!week.past && week.status === 'requested') items.push({ period, week });
     }
-    block.appendChild(grid);
+  }
+  if (!items.length) { box.style.display = 'none'; return; }
+  box.style.display = 'block';
+  const title = document.createElement('div');
+  title.className = 'attention-title';
+  title.textContent = `Needs your attention — ${items.length} week${items.length === 1 ? '' : 's'} with requests to assign`;
+  box.appendChild(title);
+  const list = document.createElement('div');
+  list.className = 'attention-list';
+  for (const { period, week } of items) {
+    const row = document.createElement('button');
+    row.className = 'attention-row';
+    row.innerHTML = `
+      <span class="attention-week">${week.range_label}</span>
+      <span class="attention-series">${escapeHtml(period.label)}</span>
+      <span class="attention-pills">${week.requests.map((r) => `<span class="pill ${r.family}">${r.family}</span>`).join('')}</span>
+    `;
+    row.addEventListener('click', () => openWeekModal(week.id));
+    list.appendChild(row);
+  }
+  box.appendChild(list);
+}
 
-    container.appendChild(block);
+function renderPeriods() {
+  const container = $('#periods-container');
+  container.innerHTML = '';
+
+  const active = periodsCache.filter((p) => !p.archived);
+  const archived = periodsCache.filter((p) => p.archived);
+  $('#empty-state').style.display = active.length === 0 && archived.length === 0 ? 'block' : 'none';
+
+  // newest series first
+  const newestFirst = (a, b) => (a.start_date < b.start_date ? 1 : -1);
+
+  renderAttention([...active].sort(newestFirst));
+
+  for (const period of [...active].sort(newestFirst)) {
+    container.appendChild(buildPeriodBlock(period));
+  }
+
+  if (me.isAdmin && archived.length) {
+    const details = document.createElement('details');
+    details.className = 'archive-section';
+    if (archiveOpen) details.open = true;
+    details.addEventListener('toggle', () => { archiveOpen = details.open; });
+    const summary = document.createElement('summary');
+    summary.textContent = `Archived series (${archived.length})`;
+    details.appendChild(summary);
+    for (const period of [...archived].sort(newestFirst)) {
+      details.appendChild(buildPeriodBlock(period));
+    }
+    container.appendChild(details);
   }
 }
 
 function renderWeekCard(week) {
   const card = document.createElement('div');
-  card.className = `week-card status-${week.status}` + (week.finalized_family ? ` family-${week.finalized_family}` : '');
+  card.className = `week-card status-${week.status}` + (week.finalized_family ? ` family-${week.finalized_family}` : '') + (week.past ? ' past' : '');
   card.addEventListener('click', () => openWeekModal(week.id));
 
   let statusHtml = '';
@@ -546,7 +642,16 @@ function renderWeekModal() {
     updateWeekEverywhere(updated);
   }
 
-  if (week.status !== 'finalized') {
+  const weekPeriod = periodsCache.find((p) => p.id === week.period_id);
+  const locked = week.past || (weekPeriod && weekPeriod.archived);
+  if (locked && week.status !== 'finalized') {
+    const note = document.createElement('p');
+    note.className = 'empty-state';
+    note.style.padding = '8px 0';
+    note.textContent = week.past ? 'This week has passed, so it is no longer open for requests.' : 'This series has been archived.';
+    actionsDiv.appendChild(note);
+  }
+  if (week.status !== 'finalized' && !locked) {
     const requestBtn = document.createElement('button');
     requestBtn.className = myRequest ? 'primary-btn' : 'secondary-btn';
     requestBtn.textContent = myRequest ? `✓ Requested by ${me.family} — click to withdraw` : `Request this week for ${me.family}`;

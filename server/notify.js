@@ -27,6 +27,7 @@ const { nanoid } = require('nanoid');
 const db = require('./db');
 const { formatRange } = require('./weeks');
 const { SCHEDULING_ADMIN_FAMILY } = require('./auth');
+const { archivedPeriodIds, isPeriodArchived, todayCT } = require('./archive');
 
 // ---------- Config ----------
 
@@ -171,14 +172,16 @@ function insertAlert(weekId, family, reason) {
 // Alert every live request from a non-admin family on a not-yet-finalized week of
 // this period, if the period currently qualifies. Idempotent.
 function sweepPeriod(periodId, reason) {
+  if (isPeriodArchived(periodId)) return 0; // finished/archived series never alert
   if (!periodStats(periodId).qualifies) return 0;
   const rows = db
     .prepare(
       `SELECT wr.week_id, wr.family
          FROM week_responses wr JOIN weeks w ON w.id = wr.week_id
-        WHERE w.period_id = ? AND w.status != 'finalized' AND wr.kind = 'requested' AND wr.family != ?`
+        WHERE w.period_id = ? AND w.status != 'finalized' AND wr.kind = 'requested' AND wr.family != ?
+          AND w.end_date >= ?`
     )
-    .all(periodId, SCHEDULING_ADMIN_FAMILY);
+    .all(periodId, SCHEDULING_ADMIN_FAMILY, todayCT());
   let n = 0;
   for (const r of rows) n += insertAlert(r.week_id, r.family, reason);
   return n;
@@ -196,18 +199,22 @@ const SELECT_PENDING = `
 
 // Alerts the admin has not been told about, for weeks still open, with the request still standing.
 function adminPending() {
+  const archived = archivedPeriodIds();
   return db
     .prepare(`${SELECT_PENDING} WHERE a.admin_notified_at IS NULL AND w.status != 'finalized'
               ORDER BY p.start_date, w.sort_index, a.family`)
-    .all();
+    .all()
+    .filter((r) => !archived.has(r.period_id) && r.end_date >= todayCT());
 }
 
 // Alerted requests whose week is now finalized and whose family has not yet been told.
 function outcomePending() {
+  const archived = archivedPeriodIds();
   return db
     .prepare(`${SELECT_PENDING} WHERE a.outcome_notified_at IS NULL AND w.status = 'finalized'
               ORDER BY a.family, w.start_date`)
-    .all();
+    .all()
+    .filter((r) => !archived.has(r.period_id) && r.end_date >= todayCT());
 }
 
 // New series that were announced-on at creation, not yet emailed, and still exist.
@@ -436,6 +443,7 @@ function onRequest(weekId, family) {
   if (mode() === 'off' || family === SCHEDULING_ADMIN_FAMILY) return;
   const week = db.prepare('SELECT * FROM weeks WHERE id = ?').get(weekId);
   if (!week || week.status === 'finalized') return;
+  if (isPeriodArchived(week.period_id)) return;
   if (!periodStats(week.period_id).qualifies) return;
   insertAlert(weekId, family, 'late_request');
   scheduleFlush();
@@ -532,7 +540,8 @@ async function sendSampleAnnouncement() {
 // What a catch-up would include: pending non-admin requests on open weeks in
 // periods that currently qualify.
 function catchupPreview() {
-  const periods = db.prepare('SELECT * FROM periods ORDER BY start_date ASC').all();
+  const archived = archivedPeriodIds();
+  const periods = db.prepare('SELECT * FROM periods ORDER BY start_date ASC').all().filter((p) => !archived.has(p.id));
   const out = [];
   for (const p of periods) {
     const stats = periodStats(p.id);
@@ -544,9 +553,10 @@ function catchupPreview() {
            JOIN weeks w ON w.id = wr.week_id
            LEFT JOIN request_alerts a ON a.week_id = wr.week_id AND a.family = wr.family
           WHERE w.period_id = ? AND w.status != 'finalized' AND wr.kind = 'requested' AND wr.family != ?
+            AND w.end_date >= ?
           ORDER BY w.sort_index, wr.family`
       )
-      .all(p.id, SCHEDULING_ADMIN_FAMILY);
+      .all(p.id, SCHEDULING_ADMIN_FAMILY, todayCT());
     if (!reqs.length) continue;
     out.push({
       period: p.label,
